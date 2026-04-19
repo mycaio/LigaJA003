@@ -59,4 +59,28 @@ class PreferencesManager(context: Context) {
     fun saveSettingsCode(code: String) {
         prefs.edit().putString(KEY_SETTINGS_CODE, code).apply()
     }
+
+    fun getWhatsAppNumber(): String =
+        prefs.getString("whatsapp_number", "5543999999999") ?: "5543999999999"
+
+    fun saveWhatsAppNumber(number: String) {
+        prefs.edit().putString("whatsapp_number", number).apply()
+    }
+
+    fun getWhatsAppCode(): String =
+        prefs.getString("whatsapp_code", "555+") ?: "555+"
+
+    fun saveWhatsAppCode(code: String) {
+        prefs.edit().putString("whatsapp_code", code).apply()
+    }
+
+    fun getWhatsAppMessage(): String =
+        prefs.getString(
+            "whatsapp_message",
+            "Preciso de ajuda. Entre em contato comigo imediatamente."
+        ) ?: "Preciso de ajuda. Entre em contato comigo imediatamente."
+
+    fun saveWhatsAppMessage(message: String) {
+        prefs.edit().putString("whatsapp_message", message).apply()
+    }
 }

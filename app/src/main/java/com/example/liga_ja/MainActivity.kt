@@ -12,17 +12,33 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.liga_ja.ui.theme.Liga_JATheme
+import com.google.android.gms.location.LocationServices
 
 class MainActivity : ComponentActivity() {
 
@@ -32,6 +48,13 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (!granted) {
                 Toast.makeText(this, "Permissão de chamada negada.", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+    private val locationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) {
+                Toast.makeText(this, "Permissão de localização negada.", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -52,9 +75,13 @@ class MainActivity : ComponentActivity() {
                             CalculatorScreen(
                                 preferencesManager = preferencesManager,
                                 onEmergencyCall = { number -> makeEmergencyCall(number) },
+                                onOpenWhatsApp = { number, message ->
+                                    openWhatsAppWithLocation(number, message)
+                                },
                                 onNavigateToContacts = { currentScreen = "contacts" }
                             )
                         }
+
                         "contacts" -> {
                             ContactListScreen(
                                 preferencesManager = preferencesManager,
@@ -73,6 +100,47 @@ class MainActivity : ComponentActivity() {
         ) {
             callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
         }
+    }
+
+    private fun openWhatsApp(phoneNumber: String, message: String) {
+        try {
+            val url = "https://wa.me/$phoneNumber?text=${Uri.encode(message)}"
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Não foi possível abrir o WhatsApp.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openWhatsAppWithLocation(phoneNumber: String, baseMessage: String) {
+        val hasFineLocation = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasFineLocation) {
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            openWhatsApp(phoneNumber, baseMessage)
+            return
+        }
+
+        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+        fusedLocationClient.lastLocation
+            .addOnSuccessListener { location ->
+                val finalMessage = if (location != null) {
+                    val mapsLink =
+                        "https://maps.google.com/?q=${location.latitude},${location.longitude}"
+                    "$baseMessage\n\nMinha localização: $mapsLink"
+                } else {
+                    baseMessage
+                }
+
+                openWhatsApp(phoneNumber, finalMessage)
+            }
+            .addOnFailureListener {
+                openWhatsApp(phoneNumber, baseMessage)
+            }
     }
 
     private fun makeEmergencyCall(phoneNumber: String) {
@@ -94,6 +162,7 @@ fun CalculatorScreen(
     modifier: Modifier = Modifier,
     preferencesManager: PreferencesManager,
     onEmergencyCall: (String) -> Unit,
+    onOpenWhatsApp: (String, String) -> Unit,
     onNavigateToContacts: () -> Unit
 ) {
     var display by remember { mutableStateOf("0") }
@@ -103,6 +172,7 @@ fun CalculatorScreen(
     var emergencyNumber by remember { mutableStateOf(preferencesManager.getEmergencyNumber()) }
     var callCode by remember { mutableStateOf(preferencesManager.getCallCode()) }
     var settingsCode by remember { mutableStateOf(preferencesManager.getSettingsCode()) }
+
     val crudCode by remember { mutableStateOf(preferencesManager.getCrudCode()) }
 
     val buttons = listOf(
@@ -161,9 +231,7 @@ fun CalculatorScreen(
                             .weight(1f)
                             .aspectRatio(1f),
                         onClick = {
-
                             when (label) {
-
                                 "C" -> {
                                     expression = ""
                                     display = "0"
@@ -193,9 +261,18 @@ fun CalculatorScreen(
                                         }
 
                                         matchedContact != null -> {
-                                            display = "Ligando p/ ${matchedContact.name}..."
                                             expression = ""
-                                            onEmergencyCall(matchedContact.phoneNumber)
+
+                                            if (matchedContact.actionType == "WHATSAPP") {
+                                                display = "WhatsApp p/ ${matchedContact.name}..."
+                                                onOpenWhatsApp(
+                                                    matchedContact.phoneNumber,
+                                                    matchedContact.whatsappMessage
+                                                )
+                                            } else {
+                                                display = "Ligando p/ ${matchedContact.name}..."
+                                                onEmergencyCall(matchedContact.phoneNumber)
+                                            }
                                         }
 
                                         else -> {
@@ -212,10 +289,8 @@ fun CalculatorScreen(
                                 }
 
                                 "," -> {
-                                    if (!expression.contains(",")) {
-                                        expression += ","
-                                        display = formatDisplay(expression)
-                                    }
+                                    expression += ","
+                                    display = formatDisplay(expression)
                                 }
 
                                 "%" -> {
@@ -250,7 +325,7 @@ fun CalculatorScreen(
                                     }
 
                                     expression += newChar
-                                    display = expression
+                                    display = formatDisplay(expression)
                                 }
 
                                 else -> {
